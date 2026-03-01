@@ -1,0 +1,171 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>ETA Predictor</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="bg-gray-100 flex items-center justify-center min-h-screen">
+
+    <div class="bg-white p-8 rounded-lg shadow-xl w-full max-w-md">
+        <h1 class="text-2xl font-bold text-center mb-6 text-blue-600">ETA Predictor</h1>
+        
+        <div class="space-y-4">
+            <div>
+                <label class="block text-sm font-medium text-gray-700">Total Distance (Miles)</label>
+                <input type="number" id="distance" value="600" class="mt-1 block w-full rounded-md border-gray-300 shadow-sm p-2 border">
+            </div>
+
+            <div>
+                <label class="block text-sm font-medium text-gray-700">Start Date & Time</label>
+                <input type="datetime-local" id="startDateTime" class="mt-1 block w-full rounded-md border-gray-300 shadow-sm p-2 border">
+                <!-- Note: The visual style of the date picker (12h vs 24h) depends on your computer's system settings. -->
+            </div>
+
+            <div>
+                <label class="block text-sm font-medium text-gray-700">Hours Worked Today</label>
+                <input type="number" id="hoursWorked" value="0" step="0.5" class="mt-1 block w-full rounded-md border-gray-300 shadow-sm p-2 border">
+                <p class="text-xs text-gray-500 mt-1">Includes loading, fueling, & driving.</p>
+            </div>
+
+            <button onclick="calculateETA()" class="w-full bg-blue-600 text-white py-2 px-4 rounded-md hover:bg-blue-700 transition">
+                Calculate ETA
+            </button>
+        </div>
+
+        <!-- Results Area -->
+        <div id="result" class="mt-6 hidden">
+            <div class="bg-green-50 border border-green-200 rounded-md p-4">
+                <p class="text-sm text-green-800 font-bold">Predicted ETA:</p>
+                <p id="etaDisplay" class="text-xl font-bold text-green-900"></p>
+            </div>
+            
+            <div class="mt-4 bg-blue-50 border border-blue-200 rounded-md p-4">
+                <p class="text-sm text-blue-800 font-bold">Compliance Check:</p>
+                <ul id="logs" class="list-disc list-inside text-sm text-gray-600 mt-1"></ul>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // --- SET DEFAULT DATE TO NOW ---
+        window.onload = function() {
+            const now = new Date();
+            now.setMinutes(now.getMinutes() - now.getTimezoneOffset());
+            document.getElementById('startDateTime').value = now.toISOString().slice(0,16);
+        };
+
+        // --- CHUNKED SIMULATION LOGIC ---
+        function calculateETA() {
+            const speed = 50.0;
+            const maxDrive = 10.5;     // 10.5 hour driving limit
+            const maxDuty = 14.0;      // 14 hour duty limit
+            const breakTrigger = 8.0;  // Break after 8h of driving
+            const sleepTime = 10.0;    // 10 hour reset
+
+            // 1. Get Inputs
+            const distance = parseFloat(document.getElementById('distance').value);
+            const dateTimeStr = document.getElementById('startDateTime').value;
+            const hoursWorkedInput = parseFloat(document.getElementById('hoursWorked').value);
+
+            // 2. Setup Date from Input
+            if (!dateTimeStr) {
+                alert("Please select a start date and time.");
+                return;
+            }
+            let currentDate = new Date(dateTimeStr);
+
+            // 3. Initialize State
+            let remainingDriveNeeded = distance / speed;
+            let currentDriveLimit = Math.min(maxDrive, maxDuty - hoursWorkedInput); 
+            let dutyTimeRemaining = maxDuty - hoursWorkedInput;
+            let drivingSinceBreak = 0; 
+            
+            let logs = [];
+            let loopCount = 0; 
+
+            if (currentDriveLimit <= 0) {
+                alert("No time left to drive today!");
+                return;
+            }
+
+            // --- MAIN SIMULATION LOOP ---
+            while (remainingDriveNeeded > 0.001) {
+                
+                // Safety break
+                if (loopCount++ > 10000) {
+                    console.error("Infinite loop detected");
+                    break;
+                }
+
+                // 1. Check for 10-Hour Sleep
+                if (currentDriveLimit <= 0.01 || dutyTimeRemaining <= 0.01) {
+                    if (remainingDriveNeeded > 0.01) {
+                        logs.push("Sleeper Berth (10 Hours) - Duty Reset");
+                        currentDate.setHours(currentDate.getHours() + 10);
+                        
+                        currentDriveLimit = maxDrive;
+                        dutyTimeRemaining = maxDuty;
+                        drivingSinceBreak = 0; 
+                        continue; 
+                    }
+                }
+
+                // 2. Check for 30-Minute Break
+                if (drivingSinceBreak >= breakTrigger) {
+                    logs.push("Took 30-min driving break");
+                    currentDate.setMinutes(currentDate.getMinutes() + 30);
+                    dutyTimeRemaining -= 0.5;
+                    drivingSinceBreak = 0;
+                    continue;
+                }
+
+                // 3. Drive a Small Chunk (15 minutes)
+                let driveChunk = Math.min(
+                    0.25,                     
+                    remainingDriveNeeded,      
+                    currentDriveLimit,         
+                    dutyTimeRemaining,         
+                    (breakTrigger - drivingSinceBreak) 
+                );
+
+                // Apply Driving
+                currentDate.setMinutes(currentDate.getMinutes() + (driveChunk * 60));
+                
+                // Update State
+                remainingDriveNeeded -= driveChunk;
+                currentDriveLimit -= driveChunk;
+                dutyTimeRemaining -= driveChunk;
+                drivingSinceBreak += driveChunk;
+            }
+
+            logs.push("Arrived at destination");
+
+            // 4. Display Results (24-Hour Format)
+            document.getElementById('result').classList.remove('hidden');
+            
+            // Options to force 24-hour time (e.g., 14:30 instead of 2:30 PM)
+            const timeOptions = { 
+                weekday: 'long', 
+                year: 'numeric', 
+                month: 'long', 
+                day: 'numeric', 
+                hour: '2-digit', 
+                minute: '2-digit', 
+                hour12: false // <--- THIS IS THE KEY CHANGE
+            };
+            
+            document.getElementById('etaDisplay').innerText = currentDate.toLocaleString('en-US', timeOptions);
+            
+            const logList = document.getElementById('logs');
+            logList.innerHTML = "";
+            logs.forEach(log => {
+                const li = document.createElement('li');
+                li.innerText = log;
+                logList.appendChild(li);
+            });
+        }
+    </script>
+</body>
+</html>
