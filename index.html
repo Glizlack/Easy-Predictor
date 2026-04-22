@@ -145,8 +145,8 @@
       let driveClock = Math.min(maxDrive, dutyClock);
       let driveSinceBreak = 0;
       
-      // Recommended Smart Logic: PTI only if starting with a full clock (14.0)
-      let needsPreTrip = (hoursLeftInput >= 14.0);
+      // FIX: FMCSA 396.13 — PTI required at start of every trip
+      let needsPreTrip = true;
       
       const logs = [];
       logs.push(`Starting Trip: ${distance} miles @ ${speed} mph.`);
@@ -173,6 +173,7 @@
           // Post-Trip before sleep
           logs.push("Post-Trip Inspection (15 min)");
           currentDate.setMinutes(currentDate.getMinutes() + (inspectionTime * 60));
+          dutyClock -= inspectionTime; // FIX: deduct from duty clock
           
           // 10-Hour Sleep
           logs.push("Sleeper Berth (10 Hours)");
